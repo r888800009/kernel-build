@@ -1,0 +1,120 @@
+name: Build Linux Kernel
+
+# 僅手動觸發
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_repo:
+        description: "Kernel git repo URL"
+        type: string
+        default: "https://github.com/torvalds/linux.git"
+      kernel_ref:
+        description: "Tag/branch/commit（留空=自動抓最新 stable release tag）"
+        type: string
+        default: ""
+      arch:
+        description: "目標架構"
+        type: choice
+        default: "x86_64"
+        options:
+          - x86_64
+          - arm64
+      build_kasan:
+        description: "Build KASAN 版本"
+        type: boolean
+        default: true
+      build_nokasan:
+        description: "Build no-KASAN 版本"
+        type: boolean
+        default: true
+      build_symbol:
+        description: "Build symbol（debug info）版本"
+        type: boolean
+        default: true
+
+jobs:
+  # --- 解析版本與要 build 的變體清單 ---
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.resolve.outputs.ref }}
+      variants: ${{ steps.variants.outputs.list }}
+    steps:
+      - name: 解析 kernel ref
+        id: resolve
+        run: |
+          set -euo pipefail
+          REF="${{ inputs.kernel_ref }}"
+          if [ -z "$REF" ]; then
+            echo "未指定 ref，抓最新 stable release tag..."
+            REF=$(git ls-remote --tags --refs "${{ inputs.kernel_repo }}" \
+              | grep -oE 'refs/tags/v[0-9]+\.[0-9]+(\.[0-9]+)?$' \
+              | sed 's#refs/tags/##' \
+              | sort -V \
+              | tail -1)
+          fi
+          echo "選用 ref: $REF"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: 組出變體清單
+        id: variants
+        run: |
+          set -euo pipefail
+          items=()
+          [ "${{ inputs.build_kasan }}" = "true" ]   && items+=('"kasan"')
+          [ "${{ inputs.build_nokasan }}" = "true" ] && items+=('"nokasan"')
+          [ "${{ inputs.build_symbol }}" = "true" ]  && items+=('"symbol"')
+          if [ ${#items[@]} -eq 0 ]; then
+            echo "至少要選一個變體" >&2
+            exit 1
+          fi
+          list="[$(IFS=,; echo "${items[*]}")]"
+          echo "variants=$list"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
+  # --- 平行 build 各變體 ---
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJson(needs.prepare.outputs.variants) }}
+    name: build-${{ matrix.variant }}
+    steps:
+      - name: Checkout 此 repo（取得 configs 與 scripts）
+        uses: actions/checkout@v4
+
+      - name: 安裝編譯相依套件
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison libssl-dev libelf-dev \
+            bc cpio kmod rsync dwarves zstd
+          if [ "${{ inputs.arch }}" = "arm64" ]; then
+            sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu
+          fi
+
+      - name: Shallow clone kernel 原始碼
+        run: |
+          set -euo pipefail
+          echo "clone ${{ inputs.kernel_repo }} @ ${{ needs.prepare.outputs.ref }}"
+          git clone --depth 1 \
+            --branch "${{ needs.prepare.outputs.ref }}" \
+            "${{ inputs.kernel_repo }}" linux
+
+      - name: Build
+        run: |
+          VARIANT="${{ matrix.variant }}" \
+          TARGET_ARCH="${{ inputs.arch }}" \
+          SRC_DIR="./linux" \
+          OUT_DIR="./out" \
+          ./scripts/build-kernel.sh
+
+      - name: 上傳產物
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ inputs.arch }}-${{ needs.prepare.outputs.ref }}-${{ matrix.variant }}
+          path: out/${{ matrix.variant }}/
+          if-no-files-found: error
+          retention-days: 14

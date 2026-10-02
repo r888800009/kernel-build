@@ -1,0 +1,8 @@
+# kernel 原始碼於 CI 時才 clone，不進 repo
+/linux/
+/out/
+/build/
+*.o
+*.ko
+vmlinux
+System.map
