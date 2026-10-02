@@ -15,6 +15,10 @@ SRC_DIR="${SRC_DIR:-./linux}"
 OUT_DIR="${OUT_DIR:-./out}"
 JOBS="${JOBS:-$(nproc)}"
 
+# 轉成絕對路徑：後面會 cd 進 SRC_DIR，相對路徑會失準
+mkdir -p "$OUT_DIR"
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
+
 # 本 script 所在 repo 的根目錄（用來找 configs/）
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG_DIR="$REPO_ROOT/configs"
