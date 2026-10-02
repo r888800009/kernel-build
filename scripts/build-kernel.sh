@@ -36,6 +36,11 @@ case "$TARGET_ARCH" in
     export CROSS_COMPILE=aarch64-linux-gnu-
     IMAGE_REL="arch/arm64/boot/Image"
     ;;
+  riscv|riscv64)
+    export ARCH=riscv
+    export CROSS_COMPILE=riscv64-linux-gnu-
+    IMAGE_REL="arch/riscv/boot/Image"
+    ;;
   *)
     echo "不支援的架構: $TARGET_ARCH" >&2
     exit 1

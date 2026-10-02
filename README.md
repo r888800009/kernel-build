@@ -15,7 +15,7 @@ Kernel 原始碼不放進此 repo，CI 執行時才 shallow clone 指定版本�
 |------|------|------|
 | `kernel_repo` | kernel git repo URL | `torvalds/linux` |
 | `kernel_ref` | tag/branch/commit；**留空則自動抓最新 stable release tag** | （空）|
-| `arch` | `x86_64` 或 `arm64` | `x86_64` |
+| `arch` | `x86_64` / `arm64` / `riscv64` | `x86_64` |
 | `build_kasan` | 是否 build KASAN 版 | ✅ |
 | `build_nokasan` | 是否 build no-KASAN 版 | ✅ |
 | `build_symbol` | 是否 build symbol 版 | ✅ |
