@@ -29,7 +29,7 @@ Kernel 原始碼不放進此 repo，CI 執行時才 shallow clone 指定版本�
 |------|------|----------|
 | **nokasan** | 乾淨 baseline / 效能 | 只套 `configs/base.config` |
 | **kasan** | fuzzing / 記憶體錯誤偵測 | `KASAN`、`KCOV`、`SLUB_DEBUG` |
-| **symbol** | crash 分析 / gdb | 完整 DWARF、`KALLSYMS_ALL`、`GDB_SCRIPTS`、關閉 KASLR |
+| **symbol** | crash 分析 / gdb | 完整 DWARF、`KALLSYMS_ALL`、`GDB_SCRIPTS`；**保留 KASLR** 以反映實際位址分布 |
 
 組態定義在 `configs/*.config`（fragment，疊在 `make defconfig` 之上）。
 
