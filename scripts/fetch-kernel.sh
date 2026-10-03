@@ -57,6 +57,11 @@ if [ -n "${REF:-}" ]; then
 fi
 
 mkdir -p "$DEST"
+# 清掉舊的同名 artifact 目錄，否則 gh run download 會因檔案已存在而失敗
+# (zip archive: error extracting "...": file exists)
+find "$DEST" -maxdepth 1 -type d -name "kernel-${ARCH}-*-${VARIANT}" \
+  -exec rm -rf {} + 2>/dev/null || true
+
 echo "==> 下載 artifact 比對樣式: $PATTERN（大檔如 vmlinux 可能需要一些時間）" >&2
 gh run download "$RUN_ID" --pattern "$PATTERN" --dir "$DEST" >&2
 
