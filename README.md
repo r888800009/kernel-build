@@ -5,6 +5,24 @@
 
 Kernel 原始碼不放進此 repo，CI 執行時才 shallow clone 指定版本。
 
+## 完整流程（build → 下載 → QEMU 開機）
+
+```
+GitHub Actions 手動觸發 build          ① 見「使用方式」
+        │  產出 artifact: kernel-<arch>-<ref>-<variant>
+        ▼
+./scripts/run-qemu.sh --variant kasan  ② 一鍵完成以下三件事：
+        │  ├─ 用 gh 下載該 artifact 到 downloads/   （= fetch-kernel.sh）
+        │  ├─ 沒有 rootfs 就自動建一個          （= create-image.sh）
+        │  └─ 用 qemu-system-<arch> 開機
+        ▼
+   serial console 或 --ssh 進入 guest
+```
+
+**最短路徑**：build 完成後，本機只要一行
+`./scripts/run-qemu.sh --variant kasan` 就會下載並開機，中間步驟都自動處理。
+`fetch-kernel.sh` / `create-image.sh` 只有在你想單獨做某一步時才需要直接呼叫。
+
 ## 使用方式
 
 1. 把此 repo push 到 GitHub。
@@ -62,7 +80,24 @@ VARIANT=kasan TARGET_ARCH=x86_64 SRC_DIR=./linux OUT_DIR=./out \
 常用參數：`--arch` `--variant` `--run-id` `--ref` `--kernel` `--rootfs`
 `--ssh`（開機後自動 ssh）`--ssh-port` `--mem` `--smp`。離開 QEMU：`Ctrl-A` 再 `X`。
 
-需求：
+### 只想下載、不開機
+
+`run-qemu.sh` 已內含下載；若只想單獨抓檔，用 `fetch-kernel.sh`：
+
+```bash
+./scripts/fetch-kernel.sh --variant kasan           # 最近一次成功 run
+./scripts/fetch-kernel.sh --variant symbol --arch arm64 --run-id 123456
+```
+
+artifact 會解壓到 `downloads/kernel-<arch>-<ref>-<variant>/`，內含
+`bzImage`/`Image`、`vmlinux`、`System.map`、`config`（最後一行印出該目錄）。
+之後要開機，把裡面的 image 路徑丟給 `run-qemu.sh`：
+
+```bash
+./scripts/run-qemu.sh --kernel downloads/kernel-x86_64-v6.12-kasan/bzImage
+```
+
+### 需求：
 - `gh`（已 `gh auth login`）— 下載 artifact 用
 - `qemu-system-<arch>` — x86_64 有 `/dev/kvm` 會自動用 KVM
 - 自動建 rootfs 需 `sudo` + `debootstrap`；跨架構另需 `qemu-user-static binfmt-support`
