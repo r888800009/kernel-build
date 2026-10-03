@@ -139,7 +139,6 @@ rootfs 預設放在 `images/`（已被 gitignore），建好後會快取重用�
 |------|------|------|
 | `MIRROR` | Debian 鏡像；**預設已用台灣 NCHC** | `http://free.nchc.org.tw/debian` |
 | `WITH_DEVTOOLS` | 設 `1` 時在 image 內加裝 `gcc/libc6-dev/make`（在 guest 編 reproducer 用） | 關 |
-| `USERNAME` | image 內建立的一般使用者名稱 | `user` |
 | `RELEASE` | Debian 版本代號 | `bookworm` |
 | `SIZE_MB` | image 大小（MB） | `2048` |
 

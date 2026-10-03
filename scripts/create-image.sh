@@ -2,8 +2,8 @@
 #
 # 建立一個可供 QEMU 開機的 Debian rootfs（syzkaller 風格）。
 # 產出：$OUT.img（ext4 raw image）
-# 內含 root 與一般使用者（預設 user），皆空密碼；serial console 自動登入
-# 哪個帳號由開機參數 login=<user> 決定（見 run-qemu.sh 的 --root / --user）。
+# 內含 root（空密碼）；serial console 自動登入哪個帳號由開機參數 login=<user>
+# 決定，非 root 帳號若不存在會在首次開機自動建立（見 run-qemu.sh 的 --root / --user）。
 #
 # 用法:
 #   TARGET_ARCH=x86_64|arm64|riscv64  RELEASE=bookworm  OUT=./images/bookworm \
@@ -23,8 +23,6 @@ SIZE_MB="${SIZE_MB:-2048}"
 # 預設不含 gcc/binutils（下載最肥的一組）；需要在 guest 內編譯時設 WITH_DEVTOOLS=1。
 PKGS="${PKGS:-systemd-sysv,udev,passwd,sudo,ca-certificates,curl,tar,time,strace,less,psmisc,kmod}"
 
-# image 內要建立的一般（非 root）使用者名稱
-USERNAME="${USERNAME:-user}"
 if [ "${WITH_DEVTOOLS:-0}" = "1" ]; then
   PKGS="$PKGS,gcc,libc6-dev,make"
 fi
@@ -79,13 +77,10 @@ sudo tee "$CHROOT/etc/hostname" >/dev/null <<<"syzkaller"
 
 sudo sed -i '/^root:/ s#^root:[^:]*:#root::#' "$CHROOT/etc/shadow"  # root 空密碼
 
-# 建立一般使用者（sudo 群組、空密碼）
-sudo chroot "$CHROOT" useradd -m -s /bin/bash -G sudo "$USERNAME"
-sudo chroot "$CHROOT" passwd -d "$USERNAME"   # 空密碼
-
-# serial 自動登入帳號由 kernel cmdline 的 login=<user> 決定（預設 root）。
-# getty 直接呼叫這支 wrapper：啟動當下才讀 /proc/cmdline，帳號不存在就 fallback
-# root。不依賴額外服務/排序/環境檔，最穩定。
+# serial 自動登入帳號完全由 kernel cmdline 的 login=<user> 決定（run-qemu.sh
+# 的 --root / --user <名稱> 會設定它）。getty 直接呼叫這支 wrapper：開機當下
+# 讀 /proc/cmdline，若指定的非 root 帳號不存在就「當場建立」（空密碼、sudo 群組），
+# 因此用參數切任何帳號都免重建 image、也不需環境變數。
 sudo install -d -m755 "$CHROOT/usr/local/sbin"
 sudo tee "$CHROOT/usr/local/sbin/autologin-getty" >/dev/null <<'EOF'
 #!/bin/sh
@@ -94,7 +89,11 @@ u=root
 for tok in $(cat /proc/cmdline); do
   case "$tok" in login=*) u="${tok#login=}" ;; esac
 done
-id "$u" >/dev/null 2>&1 || u=root   # 帳號不存在則 fallback root
+if [ "$u" != root ] && ! id "$u" >/dev/null 2>&1; then
+  useradd -m -s /bin/bash -G sudo "$u" 2>/dev/null
+  passwd -d "$u" >/dev/null 2>&1          # 空密碼
+fi
+id "$u" >/dev/null 2>&1 || u=root          # 萬一仍失敗則 fallback root
 exec /sbin/agetty --autologin "$u" --noclear "$1" 115200 linux
 EOF
 sudo chmod +x "$CHROOT/usr/local/sbin/autologin-getty"
@@ -151,4 +150,4 @@ rmdir "$MNT"
 
 echo "==> 完成:"
 echo "    image: $OUT.img"
-echo "    帳號: root（空密碼）、$USERNAME（空密碼、sudo 群組）"
+echo "    帳號: root（空密碼）；一般使用者由開機參數 login=<user> 指定、首次開機自動建立"
