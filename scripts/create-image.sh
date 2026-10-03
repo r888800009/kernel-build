@@ -35,7 +35,10 @@ OUT_DIR="$(dirname "$OUT")"
 mkdir -p "$OUT_DIR"
 OUT="$(cd "$OUT_DIR" && pwd)/$(basename "$OUT")"
 
-CHROOT="$(mktemp -d)"
+# chroot 必須放在支援裝置節點的檔案系統上（不能是帶 nodev 的 /tmp，
+# 否則 debootstrap 的 test-dev-null 會 Permission denied）。
+# 放在輸出目錄旁（通常為一般磁碟）。
+CHROOT="$(mktemp -d -p "$OUT_DIR" chroot.XXXXXX)"
 trap 'sudo rm -rf "$CHROOT"' EXIT
 
 echo "==> debootstrap $RELEASE ($DEBARCH) 於 $CHROOT"
