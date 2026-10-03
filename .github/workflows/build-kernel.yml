@@ -4,12 +4,20 @@ name: Build Linux Kernel
 on:
   workflow_dispatch:
     inputs:
-      kernel_repo:
-        description: "Kernel git repo URL"
+      kernel_source:
+        description: "Kernel 來源"
+        type: choice
+        default: "mainline"
+        options:
+          - mainline   # torvalds/linux：vX.Y 與 vX.Y-rcN
+          - stable     # gregkh/linux：stable/LTS 點版，如 v6.12.111
+          - custom     # 用下方 kernel_repo_custom 指定
+      kernel_repo_custom:
+        description: "自訂 repo URL（kernel_source=custom 時使用）"
         type: string
-        default: "https://github.com/torvalds/linux.git"
+        default: ""
       kernel_ref:
-        description: "Tag/branch/commit（留空=自動抓最新 stable release tag）"
+        description: "Tag/branch/commit（留空=自動抓最新 release tag；bare 版本號會自動補 v）"
         type: string
         default: ""
       arch:
@@ -38,17 +46,31 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
+      repo: ${{ steps.resolve.outputs.repo }}
       ref: ${{ steps.resolve.outputs.ref }}
       variants: ${{ steps.variants.outputs.list }}
     steps:
-      - name: 解析 kernel ref
+      - name: 解析 kernel repo 與 ref
         id: resolve
         run: |
           set -euo pipefail
+          # 由 kernel_source 決定 repo
+          case "${{ inputs.kernel_source }}" in
+            mainline) REPO="https://github.com/torvalds/linux.git" ;;
+            stable)   REPO="https://github.com/gregkh/linux.git" ;;
+            custom)
+              REPO="${{ inputs.kernel_repo_custom }}"
+              [ -n "$REPO" ] || { echo "kernel_source=custom 但未填 kernel_repo_custom" >&2; exit 1; }
+              ;;
+            *) echo "未知 kernel_source" >&2; exit 1 ;;
+          esac
+          echo "repo: $REPO"
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+
           REF="${{ inputs.kernel_ref }}"
           if [ -z "$REF" ]; then
-            echo "未指定 ref，抓最新 stable release tag..."
-            REF=$(git ls-remote --tags --refs "${{ inputs.kernel_repo }}" \
+            echo "未指定 ref，抓最新 release tag..."
+            REF=$(git ls-remote --tags --refs "$REPO" \
               | grep -oE 'refs/tags/v[0-9]+\.[0-9]+(\.[0-9]+)?$' \
               | sed 's#refs/tags/##' \
               | sort -V \
@@ -102,7 +124,7 @@ jobs:
       - name: Shallow fetch kernel 原始碼
         run: |
           set -euo pipefail
-          REPO="${{ inputs.kernel_repo }}"
+          REPO="${{ needs.prepare.outputs.repo }}"
           REF="${{ needs.prepare.outputs.ref }}"
           # bare 版本號（含點、開頭為數字）自動補上 v 前綴：6.12.111 -> v6.12.111
           # commit SHA 不含點，不受影響
@@ -122,8 +144,8 @@ jobs:
               echo "無法 fetch ref: $REF" >&2
               echo "常見原因：" >&2
               echo "  1) tag 少了 v 前綴（已自動嘗試補上）" >&2
-              echo "  2) repo 不含此 ref。stable/LTS 點版（如 v6.12.111）不在 torvalds，" >&2
-              echo "     請把 kernel_repo 設為 https://github.com/gregkh/linux.git" >&2
+              echo "  2) repo 不含此 ref。stable/LTS 點版（如 v6.12.111）不在 mainline，" >&2
+              echo "     請把 kernel_source 選為 stable（gregkh/linux）" >&2
               echo "==================================================================" >&2
               exit 1
             }

@@ -31,8 +31,9 @@ GitHub Actions 手動觸發 build          ① 見「使用方式」
 
 | 參數 | 說明 | 預設 |
 |------|------|------|
-| `kernel_repo` | kernel git repo URL | `torvalds/linux` |
-| `kernel_ref` | tag/branch/commit；**留空則自動抓最新 stable release tag** | （空）|
+| `kernel_source` | 來源：`mainline`(torvalds) / `stable`(gregkh) / `custom` | `mainline` |
+| `kernel_repo_custom` | 自訂 repo URL（`kernel_source=custom` 時用） | （空）|
+| `kernel_ref` | tag/branch/commit；**留空自動抓最新 release tag**；bare 版本號自動補 `v` | （空）|
 | `arch` | `x86_64` / `arm64` / `riscv64` | `x86_64` |
 | `build_kasan` | 是否 build KASAN 版 | ✅ |
 | `build_nokasan` | 是否 build no-KASAN 版 | ✅ |
@@ -43,16 +44,17 @@ GitHub Actions 手動觸發 build          ① 見「使用方式」
 
 `kernel_ref` 可填 **tag、branch 或 commit SHA**（workflow 用 fetch + checkout，三者皆可）。
 
-### mainline vs stable/LTS 的 repo 選擇
+### mainline vs stable/LTS 的來源選擇
 
 mainline（`torvalds/linux`）**只有** `vX.Y` 與 `vX.Y-rcN` 的 tag，**沒有** stable 點版（如
-`v6.12.93`）。要 build stable/LTS 點版時，`kernel_repo` 要改指 stable 鏡像：
+`v6.12.93`）。build stable/LTS 點版時把 `kernel_source` 選成 `stable`：
 
-| 目標 | `kernel_repo` | `kernel_ref` 範例 |
-|------|---------------|-------------------|
-| mainline / -rc | `https://github.com/torvalds/linux.git`（預設） | `v7.3-rc5` 或某個 commit SHA |
-| 特定 commit | 同上（該 commit 所在的 tree） | `ce1e0223d8ad4211275c82a17ed6d43ab81e13d9` |
-| stable / LTS 點版 | `https://github.com/gregkh/linux.git` | `v6.12.93` |
+| 目標 | `kernel_source` | `kernel_ref` 範例 |
+|------|-----------------|-------------------|
+| mainline / -rc | `mainline` | `v7.3-rc5` 或某個 commit SHA |
+| 特定 commit | `mainline`（該 commit 在此 tree） | `ce1e0223d8ad4211275c82a17ed6d43ab81e13d9` |
+| stable / LTS 點版 | `stable` | `v6.12.93`（填 `6.12.93` 也會自動補 `v`）|
+| 其他 tree | `custom` + `kernel_repo_custom` | 視該 repo 而定 |
 
 ## 三個變體差異
 
