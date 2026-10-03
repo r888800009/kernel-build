@@ -99,13 +99,23 @@ jobs:
             sudo apt-get install -y --no-install-recommends gcc-riscv64-linux-gnu
           fi
 
-      - name: Shallow clone kernel 原始碼
+      - name: Shallow fetch kernel 原始碼
         run: |
           set -euo pipefail
-          echo "clone ${{ inputs.kernel_repo }} @ ${{ needs.prepare.outputs.ref }}"
-          git clone --depth 1 \
-            --branch "${{ needs.prepare.outputs.ref }}" \
-            "${{ inputs.kernel_repo }}" linux
+          REPO="${{ inputs.kernel_repo }}"
+          REF="${{ needs.prepare.outputs.ref }}"
+          echo "fetch $REPO @ $REF"
+          # 用 fetch 而非 clone --branch，才能同時支援 tag / branch / commit SHA
+          mkdir linux && cd linux
+          git init -q
+          git remote add origin "$REPO"
+          if ! git fetch --depth 1 origin "$REF"; then
+            echo "直接 fetch ref 失敗，改抓完整 tag 清單後再 fetch（適用某些鏡像）" >&2
+            git fetch --depth 1 origin "+refs/tags/$REF:refs/tags/$REF" \
+              || { echo "無法 fetch ref: $REF（確認 kernel_repo 含此 ref，stable/LTS 需用 stable 鏡像）" >&2; exit 1; }
+          fi
+          git checkout -q FETCH_HEAD
+          echo "checked out: $(git rev-parse HEAD)"
 
       - name: Build
         run: |
