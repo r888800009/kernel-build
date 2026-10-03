@@ -80,6 +80,22 @@ VARIANT=kasan TARGET_ARCH=x86_64 SRC_DIR=./linux OUT_DIR=./out \
 常用參數：`--arch` `--variant` `--run-id` `--ref` `--kernel` `--rootfs`
 `--ssh`（開機後自動 ssh）`--ssh-port` `--mem` `--smp`。離開 QEMU：`Ctrl-A` 再 `X`。
 
+### GDB 除錯模式
+
+`--gdb` 會開 QEMU 的 gdbstub 並在開機前暫停，等你用 gdb 連入（最適合搭 `symbol` 版的 `vmlinux`）：
+
+```bash
+./scripts/run-qemu.sh --variant symbol --gdb          # 預設 port 1234
+# 另開一個終端機：
+gdb downloads/kernel-x86_64-*-symbol/vmlinux
+(gdb) target remote :1234
+(gdb) hbreak start_kernel      # 用硬體中斷點較可靠
+(gdb) continue
+```
+
+x86 在 `--gdb` 下會自動改用 TCG（KVM 的軟體中斷點不可靠）。KASLR 會讓符號位址偏移，
+需要固定位址時加 `--nokaslr`（開機參數，不必重新 build）。`--gdb-port` 可改 port。
+
 ### 只想下載、不開機
 
 `run-qemu.sh` 已內含下載；若只想單獨抓檔，用 `fetch-kernel.sh`：

@@ -10,6 +10,10 @@
 #   ./scripts/run-qemu.sh --run-id 123456 --arch arm64 --variant symbol
 #   ./scripts/run-qemu.sh --kernel ./downloads/.../bzImage --rootfs ./images/x.img
 #
+#   # GDB 模式：QEMU 開機前暫停，等 gdb 連入（建議搭 symbol 版）
+#   ./scripts/run-qemu.sh --variant symbol --gdb [--gdb-port 1234] [--nokaslr]
+#   然後另開終端機: gdb vmlinux ; (gdb) target remote :1234 ; hbreak start_kernel ; c
+#
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,6 +32,9 @@ DEST="${DEST:-./downloads}"
 IMAGES_DIR="${IMAGES_DIR:-./images}"
 EXTRA_APPEND="${EXTRA_APPEND:-}"
 SSH=0           # --ssh：開機後直接 ssh 進去
+GDB=0           # --gdb：開 QEMU gdbstub 並在開機前暫停
+GDB_PORT="${GDB_PORT:-1234}"
+NOKASLR=0       # --nokaslr：開機參數加 nokaslr（debug 方便）
 
 usage() { grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
@@ -43,6 +50,9 @@ while [ $# -gt 0 ]; do
     --mem)      MEM="$2"; shift 2 ;;
     --smp)      SMP="$2"; shift 2 ;;
     --ssh)      SSH=1; shift ;;
+    --gdb)      GDB=1; shift ;;
+    --gdb-port) GDB_PORT="$2"; shift 2 ;;
+    --nokaslr)  NOKASLR=1; shift ;;
     -h|--help)  usage 0 ;;
     *) echo "未知參數: $1" >&2; usage 1 ;;
   esac
@@ -77,14 +87,23 @@ fi
 echo "== rootfs: $ROOTFS =="
 
 # --- 3) 組 QEMU 指令 ---
+[ "$NOKASLR" = "1" ] && EXTRA_APPEND="nokaslr $EXTRA_APPEND"
 COMMON_APPEND="earlyprintk=serial net.ifnames=0 oops=panic panic_on_warn=1 panic=-1 $EXTRA_APPEND"
 NET="user,id=net0,hostfwd=tcp:127.0.0.1:${SSH_PORT}-:22"
+
+# gdb 模式：開 gdbstub 並在第一道指令前暫停（-S），等 gdb 連入後 continue 才開機
+GDB_ARGS=()
+if [ "$GDB" = "1" ]; then
+  GDB_ARGS=(-gdb "tcp::${GDB_PORT}" -S)
+fi
 
 case "$ARCH" in
   x86_64)
     QEMU=qemu-system-x86_64
     ACCEL=(-cpu qemu64)
     if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL=(-enable-kvm -cpu host); fi
+    # gdb 下 KVM 的軟體中斷點不可靠，改用 TCG 以利 source-level debug
+    if [ "$GDB" = "1" ]; then ACCEL=(-cpu qemu64); fi
     QARGS=(
       "${ACCEL[@]}" -m "$MEM" -smp "$SMP"
       -kernel "$KERNEL"
@@ -119,15 +138,33 @@ case "$ARCH" in
   *) echo "不支援的架構: $ARCH" >&2; exit 1 ;;
 esac
 
+# 併入 gdbstub 參數（空陣列時安全展開）
+QARGS+=(${GDB_ARGS[@]+"${GDB_ARGS[@]}"})
+
 command -v "$QEMU" >/dev/null || { echo "缺少 $QEMU，請安裝對應 qemu-system 套件" >&2; exit 1; }
 
 if [ -n "$SSH_KEY" ]; then
   echo "== 開機後可用: ssh -i $SSH_KEY -p $SSH_PORT root@127.0.0.1 =="
 fi
+
+if [ "$GDB" = "1" ]; then
+  # 找 vmlinux（symbol 版含完整 debug info，最適合 gdb）
+  VMLINUX=""
+  [ -f "$(dirname "$KERNEL")/vmlinux" ] && VMLINUX="$(dirname "$KERNEL")/vmlinux"
+  echo "== GDB 模式：QEMU 已暫停，於另一個終端機連線 =="
+  echo "   gdb ${VMLINUX:-vmlinux}"
+  echo "   (gdb) target remote :$GDB_PORT"
+  echo "   (gdb) hbreak start_kernel   # 建議用硬體中斷點 hbreak"
+  echo "   (gdb) continue"
+  [ "$NOKASLR" = "1" ] || echo "   提示：KASLR 開啟中，符號位址會偏移；需要固定位址可加 --nokaslr"
+fi
 echo "== 離開 QEMU: Ctrl-A 再按 X =="
 echo "+ $QEMU ${QARGS[*]}"
 
-if [ "$SSH" = "1" ] && [ -n "$SSH_KEY" ]; then
+if [ "$GDB" = "1" ]; then
+  # gdb 模式用 -S 暫停，不能走 --ssh 自動連線（會卡住），直接前景執行
+  exec "$QEMU" "${QARGS[@]}"
+elif [ "$SSH" = "1" ] && [ -n "$SSH_KEY" ]; then
   # 背景開機，等 ssh port 通了再連入
   "$QEMU" "${QARGS[@]}" &
   QPID=$!
