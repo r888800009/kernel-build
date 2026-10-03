@@ -146,11 +146,12 @@ rootfs 預設放在 `images/`（已被 gitignore），建好後會快取重用�
 
 ### 重建 rootfs（重來一次）
 
-rootfs 壞了或想換設定時，先清掉再跑：
+rootfs 壞了或想換設定時，先清掉再跑（直接刪整個 `images/` 最保險，
+zsh 下對不存在的萬用字元會報錯，故不要用 `images/chroot.*` 這種寫法）：
 
 ```bash
-sudo rm -rf images/chroot.* images/bookworm-x86_64.img
-MIRROR=http://free.nchc.org.tw/debian ./scripts/run-qemu.sh --variant kasan
+sudo rm -rf images
+./scripts/run-qemu.sh --variant kasan
 ```
 
 ## 結構
