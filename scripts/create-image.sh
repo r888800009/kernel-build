@@ -16,7 +16,12 @@ OUT="${OUT:-./images/${RELEASE}-${TARGET_ARCH}}"
 SIZE_MB="${SIZE_MB:-2048}"
 
 # 額外要裝進 image 的套件（逗號分隔）
-PKGS="${PKGS:-openssh-server,curl,tar,gcc,libc6-dev,time,strace,less,psmisc,kmod}"
+# 用 minbase 只裝最小基底加速，但 minbase 不含 init，必須明確補上
+# systemd（開機、serial-getty、networkd）等必要套件。
+PKGS="${PKGS:-systemd-sysv,udev,openssh-server,ca-certificates,curl,tar,gcc,libc6-dev,time,strace,less,psmisc,kmod}"
+
+# Debian mirror（可用較近的鏡像加速，例如 http://free.nchc.org.tw/debian）
+MIRROR="${MIRROR:-http://deb.debian.org/debian}"
 
 # TARGET_ARCH -> debian 架構 / qemu-user 名稱
 case "$TARGET_ARCH" in
@@ -42,16 +47,18 @@ CHROOT="$(mktemp -d -p "$OUT_DIR" chroot.XXXXXX)"
 trap 'sudo rm -rf "$CHROOT"' EXIT
 
 echo "==> debootstrap $RELEASE ($DEBARCH) 於 $CHROOT"
+echo "    首次會下載數百 MB 套件，約需數分鐘（下方會顯示進度）"
+echo "    mirror=$MIRROR"
 if [ "$DEBARCH" = "$HOSTARCH" ]; then
-  sudo debootstrap --include="$PKGS" --components=main,universe \
-    "$RELEASE" "$CHROOT" >/dev/null
+  sudo debootstrap --variant=minbase --components=main \
+    --include="$PKGS" "$RELEASE" "$CHROOT" "$MIRROR"
 else
   # 跨架構：first stage + qemu-user-static 做 second stage
   command -v "qemu-$QEMUUSER-static" >/dev/null || {
     echo "跨架構需要 qemu-$QEMUUSER-static，請: sudo apt-get install -y qemu-user-static binfmt-support" >&2
     exit 1; }
-  sudo debootstrap --foreign --arch="$DEBARCH" --include="$PKGS" \
-    --components=main,universe "$RELEASE" "$CHROOT" >/dev/null
+  sudo debootstrap --foreign --variant=minbase --arch="$DEBARCH" \
+    --components=main --include="$PKGS" "$RELEASE" "$CHROOT" "$MIRROR"
   sudo cp "$(command -v qemu-$QEMUUSER-static)" "$CHROOT/usr/bin/"
   sudo chroot "$CHROOT" /debootstrap/debootstrap --second-stage
 fi
