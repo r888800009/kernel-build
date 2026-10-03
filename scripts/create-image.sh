@@ -18,9 +18,14 @@ SIZE_MB="${SIZE_MB:-2048}"
 # 額外要裝進 image 的套件（逗號分隔）
 # 用 minbase 只裝最小基底加速，但 minbase 不含 init，必須明確補上
 # systemd（開機、serial-getty、networkd）等必要套件。
-PKGS="${PKGS:-systemd-sysv,udev,openssh-server,ca-certificates,curl,tar,gcc,libc6-dev,time,strace,less,psmisc,kmod}"
+# 預設不含 gcc/binutils（下載最肥的一組）；需要在 guest 內編譯時設 WITH_DEVTOOLS=1。
+PKGS="${PKGS:-systemd-sysv,udev,openssh-server,ca-certificates,curl,tar,time,strace,less,psmisc,kmod}"
+if [ "${WITH_DEVTOOLS:-0}" = "1" ]; then
+  PKGS="$PKGS,gcc,libc6-dev,make"
+fi
 
-# Debian mirror（可用較近的鏡像加速，例如 http://free.nchc.org.tw/debian）
+# Debian mirror。台灣可用較近的鏡像大幅加速，例如:
+#   http://free.nchc.org.tw/debian  或  http://ftp.tku.edu.tw/debian
 MIRROR="${MIRROR:-http://deb.debian.org/debian}"
 
 # TARGET_ARCH -> debian 架構 / qemu-user 名稱
