@@ -16,7 +16,7 @@ GitHub Actions 手動觸發 build          ① 見「使用方式」
         │  ├─ 沒有 rootfs 就自動建一個          （= create-image.sh）
         │  └─ 用 qemu-system-<arch> 開機
         ▼
-   serial console 或 --ssh 進入 guest
+   serial console 直接登入 guest（--root / --user 選身分）
 ```
 
 **最短路徑**：build 完成後，本機只要一行
@@ -64,21 +64,34 @@ VARIANT=kasan TARGET_ARCH=x86_64 SRC_DIR=./linux OUT_DIR=./out \
 ## 下載 build 好的 kernel 並用 QEMU 執行
 
 `scripts/run-qemu.sh` 會從 GitHub Actions 抓 artifact（透過 `gh`），
-必要時自動建一個帶 ssh 的 Debian rootfs，然後用 QEMU 開機。
+必要時自動建一個 Debian rootfs，然後用 QEMU 開機（serial console 直接登入）。
 
 ```bash
-# 抓最近一次成功 build 的 x86_64 kasan 版，自動建 rootfs 並開機（serial console）
+# 抓最近一次成功 build 的 x86_64 kasan 版，自動建 rootfs 並開機（以一般使用者登入）
 ./scripts/run-qemu.sh --variant kasan
 
-# 指定某次 run / 架構，開機後直接 ssh 進去
-./scripts/run-qemu.sh --run-id 123456 --arch arm64 --variant symbol --ssh
+# 以 root 身分登入
+./scripts/run-qemu.sh --variant kasan --root
+
+# 指定某次 run / 架構
+./scripts/run-qemu.sh --run-id 123456 --arch arm64 --variant symbol
 
 # 用本機既有的 kernel / rootfs，不經 gh 下載
 ./scripts/run-qemu.sh --kernel ./downloads/.../bzImage --rootfs ./images/x.img
 ```
 
+**登入身分（開機時切換，不需重建 image）**：image 內含 `root` 與一般使用者
+`user`（皆空密碼，`user` 在 sudo 群組）。serial console 自動登入哪個由開機參數決定：
+
+- 預設 → 一般使用者 `user`（適合重現非特權漏洞）
+- `--root` → root
+- `--user <名稱>` → 指定帳號
+
+原理是 run-qemu.sh 把 `login=<user>` 加進 kernel cmdline，guest 內的
+`set-autologin` 服務據此設定 `serial-getty` 的自動登入帳號。
+
 常用參數：`--arch` `--variant` `--run-id` `--ref` `--kernel` `--rootfs`
-`--ssh`（開機後自動 ssh）`--ssh-port` `--mem` `--smp`。離開 QEMU：`Ctrl-A` 再 `X`。
+`--root` / `--user <名稱>` `--mem` `--smp`。離開 QEMU：`Ctrl-A` 再 `X`。
 
 ### GDB 除錯模式
 
@@ -118,7 +131,7 @@ artifact 會解壓到 `downloads/kernel-<arch>-<ref>-<variant>/`，內含
 - `qemu-system-<arch>` — x86_64 有 `/dev/kvm` 會自動用 KVM
 - 自動建 rootfs 需 `sudo` + `debootstrap`；跨架構另需 `qemu-user-static binfmt-support`
 
-rootfs 與 ssh 金鑰預設放在 `images/`（已被 gitignore），建好後會快取重用、不會重建。
+rootfs 預設放在 `images/`（已被 gitignore），建好後會快取重用、不會重建。
 
 ### rootfs 相關環境變數
 
@@ -126,6 +139,7 @@ rootfs 與 ssh 金鑰預設放在 `images/`（已被 gitignore），建好後會
 |------|------|------|
 | `MIRROR` | Debian 鏡像；**預設已用台灣 NCHC** | `http://free.nchc.org.tw/debian` |
 | `WITH_DEVTOOLS` | 設 `1` 時在 image 內加裝 `gcc/libc6-dev/make`（在 guest 編 reproducer 用） | 關 |
+| `USERNAME` | image 內建立的一般使用者名稱 | `user` |
 | `RELEASE` | Debian 版本代號 | `bookworm` |
 | `SIZE_MB` | image 大小（MB） | `2048` |
 

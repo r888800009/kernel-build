@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 #
 # 建立一個可供 QEMU 開機的 Debian rootfs（syzkaller 風格）。
-# 產出：$OUT.img（ext4 raw image）+ $OUT.id_rsa（ssh 私鑰）
+# 產出：$OUT.img（ext4 raw image）
+# 內含 root 與一般使用者（預設 user），皆空密碼；serial console 自動登入
+# 哪個帳號由開機參數 login=<user> 決定（見 run-qemu.sh 的 --root / --user）。
 #
 # 用法:
 #   TARGET_ARCH=x86_64|arm64|riscv64  RELEASE=bookworm  OUT=./images/bookworm \
@@ -19,7 +21,10 @@ SIZE_MB="${SIZE_MB:-2048}"
 # 用 minbase 只裝最小基底加速，但 minbase 不含 init，必須明確補上
 # systemd（開機、serial-getty、networkd）等必要套件。
 # 預設不含 gcc/binutils（下載最肥的一組）；需要在 guest 內編譯時設 WITH_DEVTOOLS=1。
-PKGS="${PKGS:-systemd-sysv,udev,openssh-server,ca-certificates,curl,tar,time,strace,less,psmisc,kmod}"
+PKGS="${PKGS:-systemd-sysv,udev,passwd,sudo,ca-certificates,curl,tar,time,strace,less,psmisc,kmod}"
+
+# image 內要建立的一般（非 root）使用者名稱
+USERNAME="${USERNAME:-user}"
 if [ "${WITH_DEVTOOLS:-0}" = "1" ]; then
   PKGS="$PKGS,gcc,libc6-dev,make"
 fi
@@ -69,17 +74,51 @@ else
 fi
 
 echo "==> 設定 image 內系統"
-# serial console 自動登入 root、空密碼、主機名、網路、ssh
+# 空密碼、主機名、一般使用者、serial 自動登入（帳號由 cmdline login= 決定）、網路
 sudo tee "$CHROOT/etc/hostname" >/dev/null <<<"syzkaller"
 
-sudo sed -i '/^root:/ s#^root:[^:]*:#root::#' "$CHROOT/etc/shadow"  # 空密碼
+sudo sed -i '/^root:/ s#^root:[^:]*:#root::#' "$CHROOT/etc/shadow"  # root 空密碼
 
-# serial tty 自動登入（systemd）
+# 建立一般使用者（sudo 群組、空密碼）
+sudo chroot "$CHROOT" useradd -m -s /bin/bash -G sudo "$USERNAME"
+sudo chroot "$CHROOT" passwd -d "$USERNAME"   # 空密碼
+
+# serial 自動登入帳號由 kernel cmdline 的 login=<user> 決定（預設 root），
+# 這樣不必重建 image 就能從外面切換 root / 一般使用者。
+sudo install -d -m755 "$CHROOT/usr/local/sbin"
+sudo tee "$CHROOT/usr/local/sbin/set-autologin" >/dev/null <<'EOF'
+#!/bin/sh
+# 從 /proc/cmdline 解析 login=<user>，寫給 serial-getty 用
+u=root
+for tok in $(cat /proc/cmdline); do
+  case "$tok" in login=*) u="${tok#login=}" ;; esac
+done
+echo "LOGINUSER=$u" > /run/autologin.env
+EOF
+sudo chmod +x "$CHROOT/usr/local/sbin/set-autologin"
+
+sudo tee "$CHROOT/etc/systemd/system/set-autologin.service" >/dev/null <<'EOF'
+[Unit]
+Description=Pick serial autologin user from kernel cmdline
+Before=serial-getty@ttyS0.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/set-autologin
+[Install]
+WantedBy=multi-user.target
+EOF
+
 sudo mkdir -p "$CHROOT/etc/systemd/system/serial-getty@ttyS0.service.d"
 sudo tee "$CHROOT/etc/systemd/system/serial-getty@ttyS0.service.d/override.conf" >/dev/null <<'EOF'
+[Unit]
+Requires=set-autologin.service
+After=set-autologin.service
 [Service]
+Environment=LOGINUSER=root
+EnvironmentFile=-/run/autologin.env
 ExecStart=
-ExecStart=-/sbin/agetty --autologin root --noclear %I 115200 linux
+ExecStart=-/sbin/agetty --autologin ${LOGINUSER} --noclear %I 115200 linux
 EOF
 
 # 網路（DHCP，介面名 net.ifnames=0 -> eth0）
@@ -92,9 +131,9 @@ DHCP=yes
 EOF
 
 # 正確啟用/停用服務（用 systemctl --root 離線操作 chroot 的 unit）
-# 啟用：networkd、ssh、serial 自動登入
-sudo systemctl --root="$CHROOT" enable systemd-networkd.service ssh.service \
-  serial-getty@ttyS0.service 2>/dev/null || true
+# 啟用：networkd、serial 自動登入
+sudo systemctl --root="$CHROOT" enable systemd-networkd.service \
+  serial-getty@ttyS0.service set-autologin.service 2>/dev/null || true
 # 停用會搶 CPU / 拖慢開機 / 與除錯無關的噪音服務。
 # 其中 networkd-wait-online 常讓開機卡住；慢速 TCG 下尤其要關。
 sudo systemctl --root="$CHROOT" mask \
@@ -109,17 +148,6 @@ sudo tee "$CHROOT/etc/systemd/system.conf.d/timeout.conf" >/dev/null <<'EOF'
 [Manager]
 DefaultTimeoutStartSec=30s
 DefaultDeviceTimeoutSec=30s
-EOF
-
-# ssh：允許 root 以金鑰登入
-sudo mkdir -p "$CHROOT/root/.ssh"
-ssh-keygen -q -t rsa -N "" -f "$OUT.id_rsa" <<<y >/dev/null
-sudo cp "$OUT.id_rsa.pub" "$CHROOT/root/.ssh/authorized_keys"
-sudo tee -a "$CHROOT/etc/ssh/sshd_config" >/dev/null <<'EOF'
-PermitRootLogin yes
-PubkeyAuthentication yes
-PasswordAuthentication yes
-PermitEmptyPasswords yes
 EOF
 
 # fstab：根目錄
@@ -138,4 +166,4 @@ rmdir "$MNT"
 
 echo "==> 完成:"
 echo "    image: $OUT.img"
-echo "    ssh key: $OUT.id_rsa"
+echo "    帳號: root（空密碼）、$USERNAME（空密碼、sudo 群組）"
