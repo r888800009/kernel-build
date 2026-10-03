@@ -2,6 +2,8 @@
 /linux/
 /out/
 /build/
+/downloads/
+/images/
 *.o
 *.ko
 vmlinux

@@ -43,6 +43,32 @@ VARIANT=kasan TARGET_ARCH=x86_64 SRC_DIR=./linux OUT_DIR=./out \
   ./scripts/build-kernel.sh
 ```
 
+## 下載 build 好的 kernel 並用 QEMU 執行
+
+`scripts/run-qemu.sh` 會從 GitHub Actions 抓 artifact（透過 `gh`），
+必要時自動建一個帶 ssh 的 Debian rootfs，然後用 QEMU 開機。
+
+```bash
+# 抓最近一次成功 build 的 x86_64 kasan 版，自動建 rootfs 並開機（serial console）
+./scripts/run-qemu.sh --variant kasan
+
+# 指定某次 run / 架構，開機後直接 ssh 進去
+./scripts/run-qemu.sh --run-id 123456 --arch arm64 --variant symbol --ssh
+
+# 用本機既有的 kernel / rootfs，不經 gh 下載
+./scripts/run-qemu.sh --kernel ./downloads/.../bzImage --rootfs ./images/x.img
+```
+
+常用參數：`--arch` `--variant` `--run-id` `--ref` `--kernel` `--rootfs`
+`--ssh`（開機後自動 ssh）`--ssh-port` `--mem` `--smp`。離開 QEMU：`Ctrl-A` 再 `X`。
+
+需求：
+- `gh`（已 `gh auth login`）— 下載 artifact 用
+- `qemu-system-<arch>` — x86_64 有 `/dev/kvm` 會自動用 KVM
+- 自動建 rootfs 需 `sudo` + `debootstrap`；跨架構另需 `qemu-user-static binfmt-support`
+
+rootfs 與 ssh 金鑰預設放在 `images/`（已被 gitignore）。
+
 ## 結構
 
 ```
@@ -51,4 +77,7 @@ configs/base.config                  # 所有變體共用（VM/virtio 可開機�
 configs/kasan.config                 # KASAN + KCOV
 configs/symbol.config                # debug info / 符號
 scripts/build-kernel.sh              # 單一變體 build 邏輯
+scripts/fetch-kernel.sh              # 用 gh 下載 artifact
+scripts/create-image.sh              # 建 Debian rootfs（debootstrap）
+scripts/run-qemu.sh                  # 下載 + 建 rootfs + QEMU 開機（主入口）
 ```
