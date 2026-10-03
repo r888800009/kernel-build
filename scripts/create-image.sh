@@ -83,42 +83,27 @@ sudo sed -i '/^root:/ s#^root:[^:]*:#root::#' "$CHROOT/etc/shadow"  # root 空�
 sudo chroot "$CHROOT" useradd -m -s /bin/bash -G sudo "$USERNAME"
 sudo chroot "$CHROOT" passwd -d "$USERNAME"   # 空密碼
 
-# serial 自動登入帳號由 kernel cmdline 的 login=<user> 決定（預設 root），
-# 這樣不必重建 image 就能從外面切換 root / 一般使用者。
+# serial 自動登入帳號由 kernel cmdline 的 login=<user> 決定（預設 root）。
+# getty 直接呼叫這支 wrapper：啟動當下才讀 /proc/cmdline，帳號不存在就 fallback
+# root。不依賴額外服務/排序/環境檔，最穩定。
 sudo install -d -m755 "$CHROOT/usr/local/sbin"
-sudo tee "$CHROOT/usr/local/sbin/set-autologin" >/dev/null <<'EOF'
+sudo tee "$CHROOT/usr/local/sbin/autologin-getty" >/dev/null <<'EOF'
 #!/bin/sh
-# 從 /proc/cmdline 解析 login=<user>，寫給 serial-getty 用
+# 用法: autologin-getty <tty>
 u=root
 for tok in $(cat /proc/cmdline); do
   case "$tok" in login=*) u="${tok#login=}" ;; esac
 done
-echo "LOGINUSER=$u" > /run/autologin.env
+id "$u" >/dev/null 2>&1 || u=root   # 帳號不存在則 fallback root
+exec /sbin/agetty --autologin "$u" --noclear "$1" 115200 linux
 EOF
-sudo chmod +x "$CHROOT/usr/local/sbin/set-autologin"
-
-sudo tee "$CHROOT/etc/systemd/system/set-autologin.service" >/dev/null <<'EOF'
-[Unit]
-Description=Pick serial autologin user from kernel cmdline
-Before=serial-getty@ttyS0.service
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/local/sbin/set-autologin
-[Install]
-WantedBy=multi-user.target
-EOF
+sudo chmod +x "$CHROOT/usr/local/sbin/autologin-getty"
 
 sudo mkdir -p "$CHROOT/etc/systemd/system/serial-getty@ttyS0.service.d"
 sudo tee "$CHROOT/etc/systemd/system/serial-getty@ttyS0.service.d/override.conf" >/dev/null <<'EOF'
-[Unit]
-Requires=set-autologin.service
-After=set-autologin.service
 [Service]
-Environment=LOGINUSER=root
-EnvironmentFile=-/run/autologin.env
 ExecStart=
-ExecStart=-/sbin/agetty --autologin ${LOGINUSER} --noclear %I 115200 linux
+ExecStart=-/usr/local/sbin/autologin-getty %I
 EOF
 
 # 網路（DHCP，介面名 net.ifnames=0 -> eth0）
@@ -133,7 +118,7 @@ EOF
 # 正確啟用/停用服務（用 systemctl --root 離線操作 chroot 的 unit）
 # 啟用：networkd、serial 自動登入
 sudo systemctl --root="$CHROOT" enable systemd-networkd.service \
-  serial-getty@ttyS0.service set-autologin.service 2>/dev/null || true
+  serial-getty@ttyS0.service 2>/dev/null || true
 # 停用會搶 CPU / 拖慢開機 / 與除錯無關的噪音服務。
 # 其中 networkd-wait-online 常讓開機卡住；慢速 TCG 下尤其要關。
 sudo systemctl --root="$CHROOT" mask \
