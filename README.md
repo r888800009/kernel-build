@@ -41,6 +41,19 @@ GitHub Actions 手動觸發 build          ① 見「使用方式」
 各變體以 matrix 平行編譯，完成後在該次 run 的 **Artifacts** 下載，
 每個 artifact 內含 `bzImage`/`Image`、`vmlinux`、`config`、`System.map`、`kernelrelease.txt`。
 
+`kernel_ref` 可填 **tag、branch 或 commit SHA**（workflow 用 fetch + checkout，三者皆可）。
+
+### mainline vs stable/LTS 的 repo 選擇
+
+mainline（`torvalds/linux`）**只有** `vX.Y` 與 `vX.Y-rcN` 的 tag，**沒有** stable 點版（如
+`v6.12.93`）。要 build stable/LTS 點版時，`kernel_repo` 要改指 stable 鏡像：
+
+| 目標 | `kernel_repo` | `kernel_ref` 範例 |
+|------|---------------|-------------------|
+| mainline / -rc | `https://github.com/torvalds/linux.git`（預設） | `v7.3-rc5` 或某個 commit SHA |
+| 特定 commit | 同上（該 commit 所在的 tree） | `ce1e0223d8ad4211275c82a17ed6d43ab81e13d9` |
+| stable / LTS 點版 | `https://github.com/gregkh/linux.git` | `v6.12.93` |
+
 ## 三個變體差異
 
 | 變體 | 用途 | 重點設定 |
