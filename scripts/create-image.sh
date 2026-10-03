@@ -83,14 +83,33 @@ ExecStart=-/sbin/agetty --autologin root --noclear %I 115200 linux
 EOF
 
 # 網路（DHCP，介面名 net.ifnames=0 -> eth0）
+# 注意 Match 不要用裸 '*'，否則連 lo 都比對、networkd 會在 loopback 上嘗試 DHCP。
 sudo tee "$CHROOT/etc/systemd/network/10-eth.network" >/dev/null <<'EOF'
 [Match]
-Name=eth0 en* *
+Name=en* eth*
 [Network]
 DHCP=yes
 EOF
-sudo ln -sf /lib/systemd/system/systemd-networkd.service \
-  "$CHROOT/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" 2>/dev/null || true
+
+# 正確啟用/停用服務（用 systemctl --root 離線操作 chroot 的 unit）
+# 啟用：networkd、ssh、serial 自動登入
+sudo systemctl --root="$CHROOT" enable systemd-networkd.service ssh.service \
+  serial-getty@ttyS0.service 2>/dev/null || true
+# 停用會搶 CPU / 拖慢開機 / 與除錯無關的噪音服務。
+# 其中 networkd-wait-online 常讓開機卡住；慢速 TCG 下尤其要關。
+sudo systemctl --root="$CHROOT" mask \
+  systemd-networkd-wait-online.service \
+  apt-daily.timer apt-daily-upgrade.timer \
+  e2scrub_all.timer e2scrub_reap.service \
+  fstrim.timer dpkg-db-backup.timer 2>/dev/null || true
+
+# 慢速 TCG 下把 systemd 預設逾時調短，避免 90s 的裝置/服務等待
+sudo mkdir -p "$CHROOT/etc/systemd/system.conf.d"
+sudo tee "$CHROOT/etc/systemd/system.conf.d/timeout.conf" >/dev/null <<'EOF'
+[Manager]
+DefaultTimeoutStartSec=30s
+DefaultDeviceTimeoutSec=30s
+EOF
 
 # ssh：允許 root 以金鑰登入
 sudo mkdir -p "$CHROOT/root/.ssh"
