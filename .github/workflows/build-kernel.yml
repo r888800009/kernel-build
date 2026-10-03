@@ -104,15 +104,29 @@ jobs:
           set -euo pipefail
           REPO="${{ inputs.kernel_repo }}"
           REF="${{ needs.prepare.outputs.ref }}"
+          # bare 版本號（含點、開頭為數字）自動補上 v 前綴：6.12.111 -> v6.12.111
+          # commit SHA 不含點，不受影響
+          if printf '%s' "$REF" | grep -qE '^[0-9]+\.[0-9]'; then
+            REF="v$REF"
+            echo "偵測到 bare 版本號，改用 tag: $REF" >&2
+          fi
           echo "fetch $REPO @ $REF"
           # 用 fetch 而非 clone --branch，才能同時支援 tag / branch / commit SHA
           mkdir linux && cd linux
           git init -q
           git remote add origin "$REPO"
           if ! git fetch --depth 1 origin "$REF"; then
-            echo "直接 fetch ref 失敗，改抓完整 tag 清單後再 fetch（適用某些鏡像）" >&2
-            git fetch --depth 1 origin "+refs/tags/$REF:refs/tags/$REF" \
-              || { echo "無法 fetch ref: $REF（確認 kernel_repo 含此 ref，stable/LTS 需用 stable 鏡像）" >&2; exit 1; }
+            echo "直接 fetch ref 失敗，改以 tag 參照再試" >&2
+            git fetch --depth 1 origin "+refs/tags/$REF:refs/tags/$REF" || {
+              echo "==================================================================" >&2
+              echo "無法 fetch ref: $REF" >&2
+              echo "常見原因：" >&2
+              echo "  1) tag 少了 v 前綴（已自動嘗試補上）" >&2
+              echo "  2) repo 不含此 ref。stable/LTS 點版（如 v6.12.111）不在 torvalds，" >&2
+              echo "     請把 kernel_repo 設為 https://github.com/gregkh/linux.git" >&2
+              echo "==================================================================" >&2
+              exit 1
+            }
           fi
           git checkout -q FETCH_HEAD
           echo "checked out: $(git rev-parse HEAD)"
