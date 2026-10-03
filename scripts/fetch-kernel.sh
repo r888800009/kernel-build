@@ -2,18 +2,38 @@
 #
 # 從 GitHub Actions 下載 build 好的 kernel artifact。
 #
-# 用法:
-#   RUN_ID=<run id>  VARIANT=kasan|nokasan|symbol  ARCH=x86_64 \
-#   DEST=./downloads  [REF=<kernel ref>]  ./scripts/fetch-kernel.sh
+# 用法（旗標或環境變數皆可）:
+#   ./scripts/fetch-kernel.sh --variant kasan [--arch x86_64] [--run-id N]
+#                             [--ref <kernel ref>] [--dest ./downloads]
+#   VARIANT=kasan ARCH=x86_64 ./scripts/fetch-kernel.sh
 #
-# 若不給 RUN_ID，預設抓最近一次成功的 "Build Linux Kernel" workflow run。
+# 若不給 run-id，預設抓最近一次成功的 "Build Linux Kernel" workflow run。
 # 需求: 已登入的 gh CLI（gh auth login）。
 set -euo pipefail
 
-VARIANT="${VARIANT:?需要 VARIANT (kasan|nokasan|symbol)}"
+# 預設值（環境變數可覆蓋，旗標再覆蓋環境變數）
+VARIANT="${VARIANT:-}"
 ARCH="${ARCH:-x86_64}"
 DEST="${DEST:-./downloads}"
 WORKFLOW="${WORKFLOW:-build-kernel.yml}"
+RUN_ID="${RUN_ID:-}"
+REF="${REF:-}"
+
+usage() { grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --variant)  VARIANT="$2"; shift 2 ;;
+    --arch)     ARCH="$2"; shift 2 ;;
+    --run-id)   RUN_ID="$2"; shift 2 ;;
+    --ref)      REF="$2"; shift 2 ;;
+    --dest)     DEST="$2"; shift 2 ;;
+    -h|--help)  usage 0 ;;
+    *) echo "未知參數: $1" >&2; usage 1 ;;
+  esac
+done
+
+[ -n "$VARIANT" ] || { echo "需要 --variant (kasan|nokasan|symbol)" >&2; usage 1; }
 
 command -v gh >/dev/null || { echo "缺少 gh CLI，請先安裝並 gh auth login" >&2; exit 1; }
 
