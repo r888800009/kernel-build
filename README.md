@@ -118,7 +118,27 @@ artifact 會解壓到 `downloads/kernel-<arch>-<ref>-<variant>/`，內含
 - `qemu-system-<arch>` — x86_64 有 `/dev/kvm` 會自動用 KVM
 - 自動建 rootfs 需 `sudo` + `debootstrap`；跨架構另需 `qemu-user-static binfmt-support`
 
-rootfs 與 ssh 金鑰預設放在 `images/`（已被 gitignore）。
+rootfs 與 ssh 金鑰預設放在 `images/`（已被 gitignore），建好後會快取重用、不會重建。
+
+### rootfs 相關環境變數
+
+| 變數 | 說明 | 預設 |
+|------|------|------|
+| `MIRROR` | Debian 鏡像；**預設已用台灣 NCHC** | `http://free.nchc.org.tw/debian` |
+| `WITH_DEVTOOLS` | 設 `1` 時在 image 內加裝 `gcc/libc6-dev/make`（在 guest 編 reproducer 用） | 關 |
+| `RELEASE` | Debian 版本代號 | `bookworm` |
+| `SIZE_MB` | image 大小（MB） | `2048` |
+
+海外環境可覆蓋鏡像：`MIRROR=http://deb.debian.org/debian ./scripts/run-qemu.sh --variant kasan`
+
+### 重建 rootfs（重來一次）
+
+rootfs 壞了或想換設定時，先清掉再跑：
+
+```bash
+sudo rm -rf images/chroot.* images/bookworm-x86_64.img
+MIRROR=http://free.nchc.org.tw/debian ./scripts/run-qemu.sh --variant kasan
+```
 
 ## 結構
 

@@ -24,9 +24,9 @@ if [ "${WITH_DEVTOOLS:-0}" = "1" ]; then
   PKGS="$PKGS,gcc,libc6-dev,make"
 fi
 
-# Debian mirror。台灣可用較近的鏡像大幅加速，例如:
-#   http://free.nchc.org.tw/debian  或  http://ftp.tku.edu.tw/debian
-MIRROR="${MIRROR:-http://deb.debian.org/debian}"
+# Debian mirror。預設用台灣 NCHC 鏡像（較快）；海外環境可覆蓋成
+# MIRROR=http://deb.debian.org/debian 或其他較近的鏡像。
+MIRROR="${MIRROR:-http://free.nchc.org.tw/debian}"
 
 # TARGET_ARCH -> debian 架構 / qemu-user 名稱
 case "$TARGET_ARCH" in
