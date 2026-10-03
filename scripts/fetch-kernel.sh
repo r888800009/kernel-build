@@ -18,6 +18,7 @@ DEST="${DEST:-./downloads}"
 WORKFLOW="${WORKFLOW:-build-kernel.yml}"
 RUN_ID="${RUN_ID:-}"
 REF="${REF:-}"
+FORCE="${FORCE:-0}"   # --force：即使本機已有也強制重新下載
 
 usage() { grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
@@ -28,12 +29,29 @@ while [ $# -gt 0 ]; do
     --run-id)   RUN_ID="$2"; shift 2 ;;
     --ref)      REF="$2"; shift 2 ;;
     --dest)     DEST="$2"; shift 2 ;;
+    --force)    FORCE=1; shift ;;
     -h|--help)  usage 0 ;;
     *) echo "未知參數: $1" >&2; usage 1 ;;
   esac
 done
 
 [ -n "$VARIANT" ] || { echo "需要 --variant (kasan|nokasan|symbol)" >&2; usage 1; }
+
+mkdir -p "$DEST"
+
+# 若本機已有下載好的同款 artifact（含 kernel image），直接重用，不重抓。
+# 要強制重新下載請加 --force。
+if [ "$FORCE" != "1" ]; then
+  for d in "$DEST"/kernel-"${ARCH}"-*-"${VARIANT}"/; do
+    [ -d "$d" ] || continue
+    if [ -f "$d/bzImage" ] || [ -f "$d/Image" ]; then
+      echo "==> 已有本機快取，直接重用（要重抓加 --force）: ${d%/}" >&2
+      ls -lh "$d" >&2
+      echo "${d%/}"
+      exit 0
+    fi
+  done
+fi
 
 command -v gh >/dev/null || { echo "缺少 gh CLI，請先安裝並 gh auth login" >&2; exit 1; }
 
@@ -56,9 +74,8 @@ if [ -n "${REF:-}" ]; then
   PATTERN="kernel-${ARCH}-${REF}-${VARIANT}"
 fi
 
-mkdir -p "$DEST"
-# 清掉舊的同名 artifact 目錄，否則 gh run download 會因檔案已存在而失敗
-# (zip archive: error extracting "...": file exists)
+# 走到這裡代表沒有可用快取（或指定了 --force）。清掉殘留/不完整的同名目錄，
+# 否則 gh run download 會因檔案已存在而失敗 (error extracting ...: file exists)
 find "$DEST" -maxdepth 1 -type d -name "kernel-${ARCH}-*-${VARIANT}" \
   -exec rm -rf {} + 2>/dev/null || true
 

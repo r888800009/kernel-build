@@ -35,6 +35,7 @@ SSH=0           # --ssh：開機後直接 ssh 進去
 GDB=0           # --gdb：開 QEMU gdbstub 並在開機前暫停
 GDB_PORT="${GDB_PORT:-1234}"
 NOKASLR=0       # --nokaslr：開機參數加 nokaslr（debug 方便）
+FORCE=0         # --force：強制重新下載 artifact（預設有快取就重用）
 
 usage() { grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
@@ -50,6 +51,7 @@ while [ $# -gt 0 ]; do
     --mem)      MEM="$2"; shift 2 ;;
     --smp)      SMP="$2"; shift 2 ;;
     --ssh)      SSH=1; shift ;;
+    --force)    FORCE=1; shift ;;
     --gdb)      GDB=1; shift ;;
     --gdb-port) GDB_PORT="$2"; shift 2 ;;
     --nokaslr)  NOKASLR=1; shift ;;
@@ -61,7 +63,7 @@ done
 # --- 1) 取得 kernel image ---
 if [ -z "$KERNEL" ]; then
   echo "== 下載 kernel artifact =="
-  ARTDIR="$(RUN_ID="$RUN_ID" VARIANT="$VARIANT" ARCH="$ARCH" REF="$REF" DEST="$DEST" \
+  ARTDIR="$(RUN_ID="$RUN_ID" VARIANT="$VARIANT" ARCH="$ARCH" REF="$REF" DEST="$DEST" FORCE="$FORCE" \
     "$HERE/fetch-kernel.sh" | tail -1)"
   # 依架構挑 image 檔
   case "$ARCH" in
