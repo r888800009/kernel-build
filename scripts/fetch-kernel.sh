@@ -82,17 +82,26 @@ fi
 echo "==> 使用 run: $RUN_ID" >&2
 
 # artifact 名稱格式： kernel-<arch>-<ref>-<variant>
-# ref 可能不定，用 pattern 比對
 PATTERN="kernel-${ARCH}-*-${VARIANT}"
 if [ -n "${REF:-}" ]; then
   PATTERN="kernel-${ARCH}-${REF}-${VARIANT}"
 fi
 
+# run-id 指定但沒給 ref：用一次輕量 gh api 查出該 run 的實際 artifact 名稱（含 ref），
+# 本機已有就重用，避免每次切 run-id 都重抓 298MB。
+if [ "$FORCE" != "1" ] && [ -z "${REF:-}" ]; then
+  NAME="$(gh api "repos/{owner}/{repo}/actions/runs/$RUN_ID/artifacts" \
+    --jq '.artifacts[].name' 2>/dev/null | grep -E "^kernel-${ARCH}-.*-${VARIANT}$" | head -1 || true)"
+  [ -n "$NAME" ] && reuse_if_exists "$DEST/$NAME" || true
+  [ -n "$NAME" ] && PATTERN="$NAME"   # 收斂成確切名稱，下載/清理更精準
+fi
+
 # 走到這裡代表要實際下載。清掉殘留/不完整的目標目錄，否則 gh run download
 # 會因檔案已存在而失敗 (error extracting ...: file exists)。
-# ref 已知 → 只清該 ref 的目錄（保留其他版本快取）；否則清同 variant 的。
 if [ -n "${REF:-}" ]; then
   rm -rf "$DEST/kernel-${ARCH}-${REF}-${VARIANT}" 2>/dev/null || true
+elif [ -n "${NAME:-}" ]; then
+  rm -rf "$DEST/$NAME" 2>/dev/null || true
 else
   find "$DEST" -maxdepth 1 -type d -name "kernel-${ARCH}-*-${VARIANT}" \
     -exec rm -rf {} + 2>/dev/null || true
