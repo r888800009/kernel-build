@@ -21,7 +21,7 @@ SIZE_MB="${SIZE_MB:-2048}"
 # 用 minbase 只裝最小基底加速，但 minbase 不含 init，必須明確補上
 # systemd（開機、serial-getty、networkd）等必要套件。
 # 預設不含 gcc/binutils（下載最肥的一組）；需要在 guest 內編譯時設 WITH_DEVTOOLS=1。
-PKGS="${PKGS:-systemd-sysv,udev,passwd,sudo,ca-certificates,curl,tar,time,strace,less,psmisc,kmod}"
+PKGS="${PKGS:-systemd-sysv,udev,passwd,sudo,ca-certificates,iproute2,iputils-ping,curl,tar,time,strace,less,psmisc,kmod}"
 
 if [ "${WITH_DEVTOOLS:-0}" = "1" ]; then
   PKGS="$PKGS,gcc,libc6-dev,make"
@@ -74,6 +74,20 @@ fi
 echo "==> 設定 image 內系統"
 # 空密碼、主機名、一般使用者、serial 自動登入（帳號由 cmdline login= 決定）、網路
 sudo tee "$CHROOT/etc/hostname" >/dev/null <<<"syzkaller"
+
+# /etc/hosts：把主機名對到 127.0.1.1，避免 sudo 解析主機名失敗的警告
+sudo tee "$CHROOT/etc/hosts" >/dev/null <<'EOF'
+127.0.0.1	localhost
+127.0.1.1	syzkaller
+::1		localhost ip6-localhost ip6-loopback
+EOF
+
+# DNS：QEMU user-net 的 DNS forwarder 在 10.0.2.3；再加公共備援
+sudo tee "$CHROOT/etc/resolv.conf" >/dev/null <<'EOF'
+nameserver 10.0.2.3
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
 
 sudo sed -i '/^root:/ s#^root:[^:]*:#root::#' "$CHROOT/etc/shadow"  # root 空密碼
 
