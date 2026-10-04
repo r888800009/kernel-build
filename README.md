@@ -35,6 +35,7 @@ GitHub Actions 手動觸發 build          ① 見「使用方式」
 | `kernel_repo_custom` | 自訂 repo URL（`kernel_source=custom` 時用） | （空）|
 | `kernel_ref` | tag/branch/commit；**留空自動抓最新 release tag**；bare 版本號自動補 `v` | （空）|
 | `arch` | `x86_64` / `arm64` / `riscv64` | `x86_64` |
+| `config_base` | `syzbot`（廣譜，驅動多、編較久）或 `defconfig`（精簡）| `syzbot` |
 | `build_kasan` | 是否 build KASAN 版 | ✅ |
 | `build_nokasan` | 是否 build no-KASAN 版 | ✅ |
 | `build_symbol` | 是否 build symbol 版 | ✅ |
@@ -60,11 +61,16 @@ mainline（`torvalds/linux`）**只有** `vX.Y` 與 `vX.Y-rcN` 的 tag，**沒�
 
 | 變體 | 用途 | 重點設定 |
 |------|------|----------|
-| **nokasan** | 乾淨 baseline / 效能 | 只套 `configs/base.config` |
-| **kasan** | 記憶體錯誤偵測 / bug 重現 | `KASAN`、`SLUB_DEBUG`（KCOV 預設關，fuzzing 才加）|
-| **symbol** | crash 分析 / gdb | 完整 DWARF、`KALLSYMS_ALL`、`GDB_SCRIPTS`；**保留 KASLR** 以反映實際位址分布 |
+| **nokasan** | 乾淨 baseline / 效能 | 關閉 `KASAN`/`KCOV` |
+| **kasan** | 記憶體錯誤偵測 / bug 重現 | `KASAN`、`SLUB_DEBUG` |
+| **symbol** | crash 分析 / gdb | 關 `KASAN`、完整 DWARF、`KALLSYMS_ALL`、`GDB_SCRIPTS`；**保留 KASLR** |
 
-組態定義在 `configs/*.config`（fragment，疊在 `make defconfig` 之上）。
+組態是 fragment（`configs/*.config`），疊在**基底 config** 之上：
+- `config_base=syzbot`：以 syzbot 上游廣譜 config 為基底（大量驅動 `=y` 編進核心），
+  變體 fragment 再開/關 KASAN/debug。**驅動需求一律靠此廣譜 config 涵蓋**，不需 out-of-tree 模組。
+- `config_base=defconfig`：以 `make defconfig` 為基底（精簡、編最快）。
+
+> 註：syzbot 廣譜 config 目前內建 x86_64；arm64/riscv64 會自動退回 defconfig。
 
 ## 本機測試
 
@@ -106,7 +112,8 @@ VARIANT=kasan TARGET_ARCH=x86_64 SRC_DIR=./linux OUT_DIR=./out \
 `set-autologin` 服務據此設定 `serial-getty` 的自動登入帳號。
 
 常用參數：`--arch` `--variant` `--run-id` `--ref` `--kernel` `--rootfs`
-`--root` / `--user <名稱>` `--mem` `--smp`。離開 QEMU：`Ctrl-A` 再 `X`。
+`--root` / `--user <名稱>` `--devtools`（image 內加 gcc/make/libc-dev，就地編
+userspace PoC）`--mem` `--smp`。離開 QEMU：`Ctrl-A` 再 `X`。
 
 ### GDB 除錯模式
 
@@ -189,7 +196,8 @@ sudo rm -rf images
 ```
 .github/workflows/build-kernel.yml   # 手動觸發的 build workflow
 configs/base.config                  # 所有變體共用（VM/virtio 可開機）
-configs/kasan.config                 # KASAN（記憶體偵測）
+configs/kasan.config                 # 開 KASAN
+configs/nokasan.config               # 關 KASAN/KCOV
 configs/symbol.config                # debug info / 符號
 scripts/build-kernel.sh              # 單一變體 build 邏輯
 scripts/list-builds.sh               # 查詢 runs 與 artifact 名稱（本機快取）

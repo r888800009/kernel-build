@@ -39,6 +39,7 @@ GDB=0           # --gdb：開 QEMU gdbstub 並在開機前暫停
 GDB_PORT="${GDB_PORT:-1234}"
 NOKASLR=0       # --nokaslr：開機參數加 nokaslr（debug 方便）
 FORCE=0         # --force：強制重新下載 artifact（預設有快取就重用）
+DEVTOOLS=0      # --devtools：建 rootfs 時加裝 gcc/make/libc-dev（編 userspace PoC）
 LOGIN="${LOGIN:-user}"   # serial 自動登入的帳號；--root 改成 root
 
 usage() { grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
@@ -56,6 +57,7 @@ while [ $# -gt 0 ]; do
     --root)     LOGIN="root"; shift ;;
     --user)     LOGIN="$2"; shift 2 ;;
     --force)    FORCE=1; shift ;;
+    --devtools) DEVTOOLS=1; shift ;;
     --gdb)      GDB=1; shift ;;
     --gdb-port) GDB_PORT="$2"; shift 2 ;;
     --nokaslr)  NOKASLR=1; shift ;;
@@ -83,7 +85,8 @@ if [ -z "$ROOTFS" ]; then
   ROOTFS="$IMAGES_DIR/bookworm-${ARCH}.img"
   if [ ! -f "$ROOTFS" ]; then
     echo "== 建立 Debian rootfs（首次會較久）=="
-    TARGET_ARCH="$ARCH" OUT="$IMAGES_DIR/bookworm-${ARCH}" "$HERE/create-image.sh"
+    TARGET_ARCH="$ARCH" OUT="$IMAGES_DIR/bookworm-${ARCH}" \
+      WITH_DEVTOOLS="$DEVTOOLS" "$HERE/create-image.sh"
   fi
 fi
 [ -f "$ROOTFS" ] || { echo "找不到 rootfs: $ROOTFS" >&2; exit 1; }

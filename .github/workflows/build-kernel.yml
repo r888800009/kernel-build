@@ -28,6 +28,13 @@ on:
           - x86_64
           - arm64
           - riscv64
+      config_base:
+        description: "基底 config：syzbot 廣譜（驅動多、編較久）或精簡 defconfig"
+        type: choice
+        default: "syzbot"
+        options:
+          - syzbot
+          - defconfig
       build_kasan:
         description: "Build KASAN 版本"
         type: boolean
@@ -155,10 +162,21 @@ jobs:
 
       - name: Build
         run: |
+          set -euo pipefail
+          BASE_CONFIG=""
+          if [ "${{ inputs.config_base }}" = "syzbot" ]; then
+            if [ "${{ inputs.arch }}" = "x86_64" ]; then
+              # syzbot 上游廣譜 config（x86_64，含 KASAN/KCOV；變體 fragment 會再調整）
+              BASE_CONFIG="https://raw.githubusercontent.com/google/syzkaller/master/dashboard/config/linux/upstream-apparmor-kasan.config"
+            else
+              echo "syzbot 廣譜 config 目前只內建 x86_64，${{ inputs.arch }} 改用 defconfig" >&2
+            fi
+          fi
           VARIANT="${{ matrix.variant }}" \
           TARGET_ARCH="${{ inputs.arch }}" \
           SRC_DIR="./linux" \
           OUT_DIR="./out" \
+          BASE_CONFIG="$BASE_CONFIG" \
           ./scripts/build-kernel.sh
 
       - name: 上傳產物

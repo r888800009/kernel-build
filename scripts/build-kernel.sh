@@ -48,11 +48,13 @@ case "$TARGET_ARCH" in
 esac
 
 # --- 組出要 merge 的 config fragment 清單 ---
+# base 一律套；nokasan/symbol 會明確關掉 KASAN/KCOV，這樣不論基底 config
+# 是否已含 KASAN（例如 syzbot 廣譜 config）都能得到預期結果。
 FRAGMENTS=("$CONFIG_DIR/base.config")
 case "$VARIANT" in
-  nokasan) ;;                                          # 只有 base
+  nokasan) FRAGMENTS+=("$CONFIG_DIR/nokasan.config") ;;
   kasan)   FRAGMENTS+=("$CONFIG_DIR/kasan.config") ;;
-  symbol)  FRAGMENTS+=("$CONFIG_DIR/symbol.config") ;;
+  symbol)  FRAGMENTS+=("$CONFIG_DIR/nokasan.config" "$CONFIG_DIR/symbol.config") ;;
   *) echo "不支援的 VARIANT: $VARIANT" >&2; exit 1 ;;
 esac
 
@@ -61,8 +63,19 @@ echo "==> fragments: ${FRAGMENTS[*]}"
 
 cd "$SRC_DIR"
 
-# 1) 產生基礎 defconfig
-make O="$BUILD_DIR" ARCH="$ARCH" defconfig
+mkdir -p "$BUILD_DIR"
+
+# 1) 產生基礎 config
+if [ -n "${BASE_CONFIG:-}" ]; then
+  # 以外部完整 config 當基底（例如 syzbot 廣譜 config，可為本機路徑或 URL）
+  echo "==> 使用基底 config: $BASE_CONFIG"
+  case "$BASE_CONFIG" in
+    http://*|https://*) curl -fsSL "$BASE_CONFIG" -o "$BUILD_DIR/.config" ;;
+    *) cp "$BASE_CONFIG" "$BUILD_DIR/.config" ;;
+  esac
+else
+  make O="$BUILD_DIR" ARCH="$ARCH" defconfig
+fi
 
 # 2) 疊上 fragment
 ./scripts/kconfig/merge_config.sh -O "$BUILD_DIR" "$BUILD_DIR/.config" "${FRAGMENTS[@]}"
