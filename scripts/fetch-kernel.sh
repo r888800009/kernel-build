@@ -39,18 +39,32 @@ done
 
 mkdir -p "$DEST"
 
-# 若本機已有下載好的同款 artifact（含 kernel image），直接重用，不重抓。
-# 要強制重新下載請加 --force。
+# 快取重用規則（避免抓到錯的版本）：
+# - 指定了 --ref：只重用「完全相符 ref」的那個目錄。
+# - 指定了 --run-id（但沒 ref）：不確定會對到哪個 ref，不走快取捷徑，交給 gh 抓。
+# - 兩者都沒指定：沿用任一個同 variant 的本機快取（最省事的預設）。
+# - --force：一律重抓。
+reuse_if_exists() {  # $1 = 目錄
+  local d="$1"
+  [ -d "$d" ] || return 1
+  if [ -f "$d/bzImage" ] || [ -f "$d/Image" ]; then
+    echo "==> 已有本機快取，直接重用（要重抓加 --force）: ${d%/}" >&2
+    ls -lh "$d" >&2
+    echo "${d%/}"
+    exit 0
+  fi
+  return 1
+}
+
 if [ "$FORCE" != "1" ]; then
-  for d in "$DEST"/kernel-"${ARCH}"-*-"${VARIANT}"/; do
-    [ -d "$d" ] || continue
-    if [ -f "$d/bzImage" ] || [ -f "$d/Image" ]; then
-      echo "==> 已有本機快取，直接重用（要重抓加 --force）: ${d%/}" >&2
-      ls -lh "$d" >&2
-      echo "${d%/}"
-      exit 0
-    fi
-  done
+  if [ -n "${REF:-}" ]; then
+    reuse_if_exists "$DEST/kernel-${ARCH}-${REF}-${VARIANT}" || true
+  elif [ -z "${RUN_ID:-}" ]; then
+    for d in "$DEST"/kernel-"${ARCH}"-*-"${VARIANT}"/; do
+      reuse_if_exists "$d" || true
+    done
+  fi
+  # 指定了 run-id 但沒 ref：略過快取，往下用 gh 抓該 run 的 artifact。
 fi
 
 command -v gh >/dev/null || { echo "缺少 gh CLI，請先安裝並 gh auth login" >&2; exit 1; }
@@ -74,10 +88,15 @@ if [ -n "${REF:-}" ]; then
   PATTERN="kernel-${ARCH}-${REF}-${VARIANT}"
 fi
 
-# 走到這裡代表沒有可用快取（或指定了 --force）。清掉殘留/不完整的同名目錄，
-# 否則 gh run download 會因檔案已存在而失敗 (error extracting ...: file exists)
-find "$DEST" -maxdepth 1 -type d -name "kernel-${ARCH}-*-${VARIANT}" \
-  -exec rm -rf {} + 2>/dev/null || true
+# 走到這裡代表要實際下載。清掉殘留/不完整的目標目錄，否則 gh run download
+# 會因檔案已存在而失敗 (error extracting ...: file exists)。
+# ref 已知 → 只清該 ref 的目錄（保留其他版本快取）；否則清同 variant 的。
+if [ -n "${REF:-}" ]; then
+  rm -rf "$DEST/kernel-${ARCH}-${REF}-${VARIANT}" 2>/dev/null || true
+else
+  find "$DEST" -maxdepth 1 -type d -name "kernel-${ARCH}-*-${VARIANT}" \
+    -exec rm -rf {} + 2>/dev/null || true
+fi
 
 echo "==> 下載 artifact 比對樣式: $PATTERN（大檔如 vmlinux 可能需要一些時間）" >&2
 gh run download "$RUN_ID" --pattern "$PATTERN" --dir "$DEST" >&2
