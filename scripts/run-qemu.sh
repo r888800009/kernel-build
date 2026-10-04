@@ -104,10 +104,16 @@ fi
 case "$ARCH" in
   x86_64)
     QEMU=qemu-system-x86_64
-    ACCEL=(-cpu qemu64)
-    if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL=(-enable-kvm -cpu host); fi
+    ACCEL=(-cpu qemu64); KVM="no"
+    if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL=(-enable-kvm -cpu host); KVM="yes"; fi
     # gdb 下 KVM 的軟體中斷點不可靠，改用 TCG 以利 source-level debug
-    if [ "$GDB" = "1" ]; then ACCEL=(-cpu qemu64); fi
+    if [ "$GDB" = "1" ]; then ACCEL=(-cpu qemu64); KVM="no(gdb)"; fi
+    echo "== 加速: KVM=$KVM =="
+    if [ "$KVM" = "no" ]; then
+      echo "!! 未使用 KVM，x86 將以 TCG 軟體模擬執行，KASAN 版會非常慢。" >&2
+      echo "!! 請確認可讀寫 /dev/kvm（例如: sudo usermod -aG kvm \$USER 後重新登入），" >&2
+      echo "!! 或在 host 開啟巢狀虛擬化。" >&2
+    fi
     QARGS=(
       "${ACCEL[@]}" -m "$MEM" -smp "$SMP"
       -kernel "$KERNEL"
