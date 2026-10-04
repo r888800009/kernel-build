@@ -124,6 +124,21 @@ gdb downloads/kernel-x86_64-*-symbol/vmlinux
 x86 在 `--gdb` 下會自動改用 TCG（KVM 的軟體中斷點不可靠）。KASLR 會讓符號位址偏移，
 需要固定位址時加 `--nokaslr`（開機參數，不必重新 build）。`--gdb-port` 可改 port。
 
+### 查詢有哪些 build 與 artifact
+
+`list-builds.sh` 列出最近的 build run 與各自的 artifact 名稱，結果快取在本機
+（預設 600 秒內重複查詢免打 API）：
+
+```bash
+./scripts/list-builds.sh              # 最近 10 筆
+./scripts/list-builds.sh --limit 20   # 多列幾筆
+./scripts/list-builds.sh --refresh    # 忽略快取、強制重查
+./scripts/list-builds.sh --json       # 原始 JSON（給程式用）
+```
+
+輸出會列出每個 run 的編號、狀態、時間與 artifact（`kernel-<arch>-<ref>-<variant>` 及大小），
+挑好後把 run 編號與 variant 餵給 `run-qemu.sh`。快取在 `downloads/.cache/`（已 gitignore）。
+
 ### 只想下載、不開機
 
 `run-qemu.sh` 已內含下載；若只想單獨抓檔，用 `fetch-kernel.sh`：
@@ -177,6 +192,7 @@ configs/base.config                  # 所有變體共用（VM/virtio 可開機�
 configs/kasan.config                 # KASAN（記憶體偵測）
 configs/symbol.config                # debug info / 符號
 scripts/build-kernel.sh              # 單一變體 build 邏輯
+scripts/list-builds.sh               # 查詢 runs 與 artifact 名稱（本機快取）
 scripts/fetch-kernel.sh              # 用 gh 下載 artifact
 scripts/create-image.sh              # 建 Debian rootfs（debootstrap）
 scripts/run-qemu.sh                  # 下載 + 建 rootfs + QEMU 開機（主入口）
