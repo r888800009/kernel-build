@@ -21,7 +21,7 @@ SIZE_MB="${SIZE_MB:-2048}"
 # 用 minbase 只裝最小基底加速，但 minbase 不含 init，必須明確補上
 # systemd（開機、serial-getty、networkd）等必要套件。
 # 預設不含 gcc/binutils（下載最肥的一組）；需要在 guest 內編譯時設 WITH_DEVTOOLS=1。
-PKGS="${PKGS:-systemd-sysv,udev,passwd,sudo,ca-certificates,iproute2,iputils-ping,curl,tar,time,strace,less,psmisc,kmod}"
+PKGS="${PKGS:-systemd-sysv,udev,passwd,sudo,ca-certificates,iproute2,iputils-ping,traceroute,netcat-openbsd,curl,tar,time,strace,less,psmisc,kmod}"
 
 if [ "${WITH_DEVTOOLS:-0}" = "1" ]; then
   PKGS="$PKGS,gcc,libc6-dev,make"
