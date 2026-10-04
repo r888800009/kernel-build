@@ -119,26 +119,45 @@ ExecStart=
 ExecStart=-/usr/local/sbin/autologin-getty %I
 EOF
 
-# 網路（DHCP，介面名 net.ifnames=0 -> eth0）
-# 注意 Match 不要用裸 '*'，否則連 lo 都比對、networkd 會在 loopback 上嘗試 DHCP。
-sudo tee "$CHROOT/etc/systemd/network/10-eth.network" >/dev/null <<'EOF'
-[Match]
-Name=en* eth*
-[Network]
-DHCP=yes
+# 網路：直接用 QEMU slirp（user-net）的固定位址設定介面，不依賴 networkd/DHCP。
+# slirp 固定給：IP 10.0.2.15/24、gateway 10.0.2.2、DNS 10.0.2.3。
+# 這樣最確定；run-qemu.sh 一律使用 user-net，所以位址固定。
+sudo tee "$CHROOT/usr/local/sbin/qemu-net" >/dev/null <<'EOF'
+#!/bin/sh
+# 把第一個非 lo 介面以 slirp 固定位址帶起來
+iface=$(ip -o link show 2>/dev/null | awk -F': ' '$2!="lo"{print $2; exit}')
+[ -n "$iface" ] || exit 0
+ip link set "$iface" up
+ip addr show dev "$iface" | grep -q 'inet ' || ip addr add 10.0.2.15/24 dev "$iface"
+ip route replace default via 10.0.2.2
+EOF
+sudo chmod +x "$CHROOT/usr/local/sbin/qemu-net"
+
+sudo tee "$CHROOT/etc/systemd/system/qemu-net.service" >/dev/null <<'EOF'
+[Unit]
+Description=QEMU slirp networking (static)
+Wants=network.target
+Before=network.target network-online.target
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/qemu-net
+[Install]
+WantedBy=multi-user.target
 EOF
 
-# 正確啟用/停用服務（用 systemctl --root 離線操作 chroot 的 unit）
-# 啟用：networkd、serial 自動登入
-sudo systemctl --root="$CHROOT" enable systemd-networkd.service \
-  serial-getty@ttyS0.service 2>/dev/null || true
-# 停用會搶 CPU / 拖慢開機 / 與除錯無關的噪音服務。
-# 其中 networkd-wait-online 常讓開機卡住；慢速 TCG 下尤其要關。
-sudo systemctl --root="$CHROOT" mask \
-  systemd-networkd-wait-online.service \
-  apt-daily.timer apt-daily-upgrade.timer \
-  e2scrub_all.timer e2scrub_reap.service \
-  fstrim.timer dpkg-db-backup.timer 2>/dev/null || true
+# 以直接建立 symlink 的方式啟用服務（不依賴 systemctl --root 在跨發行版 host 的行為）
+sudo mkdir -p "$CHROOT/etc/systemd/system/multi-user.target.wants"
+sudo ln -sf /etc/systemd/system/qemu-net.service \
+  "$CHROOT/etc/systemd/system/multi-user.target.wants/qemu-net.service"
+
+# 停用會搶 CPU / 拖慢開機 / 與除錯無關的噪音服務（用 mask 連到 /dev/null）
+for u in systemd-networkd-wait-online.service \
+         apt-daily.timer apt-daily-upgrade.timer \
+         e2scrub_all.timer e2scrub_reap.service \
+         fstrim.timer dpkg-db-backup.timer; do
+  sudo ln -sf /dev/null "$CHROOT/etc/systemd/system/$u"
+done
 
 # 慢速 TCG 下把 systemd 預設逾時調短，避免 90s 的裝置/服務等待
 sudo mkdir -p "$CHROOT/etc/systemd/system.conf.d"
